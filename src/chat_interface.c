@@ -47,15 +47,12 @@ void chat_interface_render_input(const char *buffer, size_t length) {
 }
 
 bool chat_interface_poll_input(char *buffer, size_t *length, size_t max_length) {
-	if (*length >= max_length)
-		return false;
-
 	int ch = wgetch(input_win);
 	if (ch == ERR) return false;
 
 	if (ch == KEY_BACKSPACE) {
 		*length && (buffer[--(*length)] = (char)0);
-	} else if (isprint(ch)) {
+	} else if (isprint(ch) && *length < max_length) {
 		buffer[(*length)++] = (char)ch;
 		buffer[(*length)]   = (char)0;
 	}
