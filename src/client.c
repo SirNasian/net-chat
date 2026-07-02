@@ -1,4 +1,3 @@
-#include <ctype.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,127 +5,82 @@
 #include <curses.h>
 #include <enet/enet.h>
 
+#include "chat_interface.h"
 #include "network.h"
-
-WINDOW *log_win;
-WINDOW *log_border_win;
-WINDOW *input_win;
 
 bool running = true;
 void handle_sigint(int _) { running = false; }
 
-void init_windows() {
-	int rows, cols;
-	getmaxyx(stdscr, rows, cols);
-
-	log_border_win = newwin(rows-3, cols, 0, 0);
-	box(log_border_win, 0, 0);
-	wrefresh(log_border_win);
-
-	log_win = derwin(log_border_win, getmaxy(log_border_win)-2, getmaxx(log_border_win)-2, 1, 1);
-	scrollok(log_win, TRUE);
-	wrefresh(log_win);
-
-	input_win = newwin(3, cols, rows-3, 0);
-	box(input_win, 0, 0);
-	wrefresh(input_win);
-}
-
-void log_message(const char *message) {
-	wmove(log_win, getmaxy(log_win)-1, 0);
-	waddstr(log_win, message);
-	wrefresh(log_win);
-	wscrl(log_win, 1);
-}
-
-void render_input(char *buffer, size_t length) {
-	werase(input_win);
-	mvwprintw(input_win, 1, 1, "> %s", buffer);
-	wmove(input_win, 1, length+3);
-	box(input_win, 0, 0);
-	wrefresh(input_win);
-}
-
-bool poll_input(char *buffer, size_t *length, size_t max_length) {
-	if (*length >= max_length)
+bool connect_server(
+	const char *server_address,
+	enet_uint16 port,
+	const char *username,
+	ENetHost **host,
+	ENetPeer **peer
+) {
+	if (enet_initialize() != 0) {
+		fprintf(stderr, "Failed to initialize enet\n");
 		return false;
-
-	int ch = wgetch(input_win);
-	if (ch == ERR) return false;
-
-	if (ch == KEY_BACKSPACE) {
-		*length && (buffer[--(*length)] = (char)0);
-	} else if (isprint(ch)) {
-		buffer[(*length)++] = (char)ch;
-		buffer[(*length)]   = (char)0;
 	}
 
-	return (ch == KEY_ENTER) || (ch == '\n') || (ch == '\r');
+	*host = enet_host_create(NULL, 1, 2, 0, 0);
+	if (*host == NULL) {
+		fprintf(stderr, "Failed to create client host\n");
+		return false;
+	}
+
+	ENetAddress address;
+	enet_address_set_host(&address, server_address);
+	address.port = port;
+
+	*peer = enet_host_connect(*host, &address, 1, 0);
+	if (*peer == NULL) {
+		fprintf(stderr, "Failed to connect to server\n");
+		enet_host_destroy(*host);
+		return false;
+	}
+
+	ENetEvent event;
+	if (enet_host_service(*host, &event, 1000) <= 0) {
+		fprintf(stderr, "Failed to connect to server (timeout)\n");
+		enet_host_destroy(*host);
+		return false;
+	}
+
+	if (username != NULL)
+		network_send(*peer, PACKET_TYPE_CLIENT_NAME, username, strlen(username));
+
+	return true;
 }
 
 int main(int argc, const char **argv) {
 	signal(SIGINT, handle_sigint);
 
-	int error;
-	if ((error = enet_initialize()) != 0) {
-		fprintf(stderr, "Failed to initialize enet: %d\n", error);
+	ENetHost *host;
+	ENetPeer *peer;
+	const char *address = argc > 1 ? argv[1] : "localhost";
+	const char *username = argc > 2 ? argv[2] : NULL;
+	if (!connect_server(address, 42069, username, &host, &peer))
 		return EXIT_FAILURE;
-	}
-
-	ENetHost *host = enet_host_create(NULL, 1, 2, 0, 0);
-	if (host == NULL) {
-		fprintf(stderr, "Failed to create client host\n");
-		return EXIT_FAILURE;
-	}
-
-	ENetAddress address;
-	enet_address_set_host(&address, argc < 2 ? "localhost" : argv[1]);
-	address.port = 42069;
-
-	ENetPeer *peer = enet_host_connect(host, &address, 1, 0);
-	if (peer == NULL) {
-		fprintf(stderr, "Failed to connect to server\n");
-		return EXIT_FAILURE;
-	}
+	chat_interface_init();
 
 	ENetEvent event;
-	if (enet_host_service(host, &event, 1000) <= 0) {
-		fprintf(stderr, "Failed to connect to server (timeout)\n");
-		return EXIT_FAILURE;
-	}
-
-	initscr();
-	noecho();
-	cbreak();
-	curs_set(1);
-
-	init_windows();
-	keypad(input_win, TRUE);
-	wtimeout(input_win, 50);
-
 	char input[PACKET_MESSAGE_LENGTH/2] = { 0 };
-	size_t length = 0;
-
-	PacketType type;
-	char message[PACKET_MESSAGE_LENGTH];
-
-	if (argc > 2) network_send(peer, PACKET_TYPE_CLIENT_NAME, argv[2], strlen(argv[2]));
-
+	size_t input_length = 0;
 	while (running) {
 		enet_host_service(host, &event, 0);
-		switch(event.type) {
-			case ENET_EVENT_TYPE_RECEIVE:
-				network_receive(event.packet->data, &type, message);
-				log_message(message);
-				break;
-			default:
-				break;
+
+		if (event.type == ENET_EVENT_TYPE_RECEIVE) {
+			PacketType type;
+			char message[PACKET_MESSAGE_LENGTH];
+			network_receive(event.packet->data, &type, message);
+			chat_interface_add_message(message);
 		}
 
-		render_input(input, length);
-		if (poll_input(input, &length, sizeof(input))) {
-			network_send(peer, PACKET_TYPE_CLIENT_MESSAGE, input, length);
-			input[(length = 0)] = '\0';
+		chat_interface_render_input(input, input_length);
+		if (chat_interface_poll_input(input, &input_length, sizeof(input))) {
+			network_send(peer, PACKET_TYPE_CLIENT_MESSAGE, input, input_length);
+			input[(input_length = 0)] = '\0';
 		}
 	}
 
