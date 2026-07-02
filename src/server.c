@@ -79,6 +79,8 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	network_broadcast(host, PACKET_TYPE_SERVER_MESSAGE, "server is shutting down!", 24);
+	enet_host_service(host, &event, 50);
 	enet_host_destroy(host);
 	return 0;
 }
