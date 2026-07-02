@@ -53,9 +53,11 @@ int main(int argc, char **argv) {
 				event.peer->data = strdup(ip);
 				break;
 			case ENET_EVENT_TYPE_DISCONNECT:
-				free(event.peer->data);
 				readable_ip(event.peer->address.host, ip);
 				printf("Peer disconnect (%s:%u)\n", ip, event.peer->address.port);
+				sprintf(message, "%s has disconnected", (char*)event.peer->data);
+				network_broadcast(host, PACKET_TYPE_SERVER_MESSAGE, message, strlen(message));
+				free(event.peer->data);
 				break;
 			case ENET_EVENT_TYPE_RECEIVE:
 				network_receive(event.packet->data, &type, message);
@@ -63,6 +65,8 @@ int main(int argc, char **argv) {
 					case PACKET_TYPE_CLIENT_NAME:
 						free(event.peer->data);
 						event.peer->data = strdup(message);
+						sprintf(message, "%s has connected", (char*)event.peer->data);
+						network_broadcast(host, PACKET_TYPE_SERVER_MESSAGE, message, strlen(message));
 						break;
 					case PACKET_TYPE_CLIENT_MESSAGE: {
 						char enriched_message[PACKET_MESSAGE_LENGTH];
