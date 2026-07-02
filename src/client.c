@@ -1,9 +1,12 @@
 #include <ctype.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <curses.h>
 #include <enet/enet.h>
+
+#include "network.h"
 
 WINDOW *log_win;
 WINDOW *log_border_win;
@@ -61,7 +64,7 @@ bool poll_input(char *buffer, size_t *length, size_t max_length) {
 	return (ch == KEY_ENTER) || (ch == '\n') || (ch == '\r');
 }
 
-int main() {
+int main(int argc, const char **argv) {
 	signal(SIGINT, handle_sigint);
 
 	int error;
@@ -77,7 +80,7 @@ int main() {
 	}
 
 	ENetAddress address;
-	enet_address_set_host(&address, "localhost");
+	enet_address_set_host(&address, argc < 2 ? "localhost" : argv[1]);
 	address.port = 42069;
 
 	ENetPeer *peer = enet_host_connect(host, &address, 1, 0);
@@ -101,14 +104,28 @@ int main() {
 	keypad(input_win, TRUE);
 	wtimeout(input_win, 50);
 
-	char input[256] = { 0 };
+	char input[PACKET_MESSAGE_LENGTH/2] = { 0 };
 	size_t length = 0;
+
+	PacketType type;
+	char message[PACKET_MESSAGE_LENGTH];
+
+	if (argc > 2) network_send(peer, PACKET_TYPE_CLIENT_NAME, argv[2], strlen(argv[2]));
 
 	while (running) {
 		enet_host_service(host, &event, 0);
+		switch(event.type) {
+			case ENET_EVENT_TYPE_RECEIVE:
+				network_receive(event.packet->data, &type, message);
+				log_message(message);
+				break;
+			default:
+				break;
+		}
+
 		render_input(input, length);
 		if (poll_input(input, &length, sizeof(input))) {
-			log_message(input);
+			network_send(peer, PACKET_TYPE_CLIENT_MESSAGE, input, length);
 			input[(length = 0)] = '\0';
 		}
 	}
