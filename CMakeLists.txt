@@ -6,8 +6,10 @@ add_subdirectory(vendor/enet)
 
 add_executable(net-chat-client)
 target_sources(net-chat-client PRIVATE src/client.c)
+target_include_directories(net-chat-client PRIVATE vendor/enet/include)
 target_link_libraries(net-chat-client PRIVATE enet ncurses)
 
 add_executable(net-chat-server)
 target_sources(net-chat-server PRIVATE src/server.c)
+target_include_directories(net-chat-server PRIVATE vendor/enet/include)
 target_link_libraries(net-chat-server PRIVATE enet)

@@ -1,9 +1,16 @@
 #include <ctype.h>
+#include <signal.h>
+#include <stdlib.h>
+
 #include <curses.h>
+#include <enet/enet.h>
 
 WINDOW *log_win;
 WINDOW *log_border_win;
 WINDOW *input_win;
+
+bool running = true;
+void handle_sigint(int _) { running = false; }
 
 void init_windows() {
 	int rows, cols;
@@ -55,6 +62,36 @@ bool poll_input(char *buffer, size_t *length, size_t max_length) {
 }
 
 int main() {
+	signal(SIGINT, handle_sigint);
+
+	int error;
+	if ((error = enet_initialize()) != 0) {
+		fprintf(stderr, "Failed to initialize enet: %d\n", error);
+		return EXIT_FAILURE;
+	}
+
+	ENetHost *host = enet_host_create(NULL, 1, 2, 0, 0);
+	if (host == NULL) {
+		fprintf(stderr, "Failed to create client host\n");
+		return EXIT_FAILURE;
+	}
+
+	ENetAddress address;
+	enet_address_set_host(&address, "localhost");
+	address.port = 42069;
+
+	ENetPeer *peer = enet_host_connect(host, &address, 1, 0);
+	if (peer == NULL) {
+		fprintf(stderr, "Failed to connect to server\n");
+		return EXIT_FAILURE;
+	}
+
+	ENetEvent event;
+	if (enet_host_service(host, &event, 1000) <= 0) {
+		fprintf(stderr, "Failed to connect to server (timeout)\n");
+		return EXIT_FAILURE;
+	}
+
 	initscr();
 	noecho();
 	cbreak();
@@ -67,7 +104,8 @@ int main() {
 	char input[256] = { 0 };
 	size_t length = 0;
 
-	while (true) {
+	while (running) {
+		enet_host_service(host, &event, 0);
 		render_input(input, length);
 		if (poll_input(input, &length, sizeof(input))) {
 			log_message(input);
@@ -75,6 +113,8 @@ int main() {
 		}
 	}
 
+	enet_peer_disconnect(peer, 0);
+	enet_host_service(host, &event, 50);
 	endwin();
 	return 0;
 }
