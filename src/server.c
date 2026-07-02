@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
 						break;
 					case PACKET_TYPE_CLIENT_MESSAGE: {
 						char enriched_message[PACKET_MESSAGE_LENGTH];
-						sprintf(enriched_message, "[%s] %s\n", (char*)event.peer->data, message);
+						sprintf(enriched_message, "[%s] %s", (char*)event.peer->data, message);
 						printf("%s\n", enriched_message);
 						network_broadcast(host, PACKET_TYPE_SERVER_MESSAGE, enriched_message, strlen(enriched_message));
 						break;
