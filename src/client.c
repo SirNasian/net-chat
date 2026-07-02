@@ -1,8 +1,9 @@
+#include <ctype.h>
 #include <curses.h>
 
-WINDOW* log_win;
-WINDOW* log_border_win;
-WINDOW* input_win;
+WINDOW *log_win;
+WINDOW *log_border_win;
+WINDOW *input_win;
 
 void init_windows() {
 	int rows, cols;
@@ -21,20 +22,6 @@ void init_windows() {
 	wrefresh(input_win);
 }
 
-void poll_input(char *buffer, size_t length) {
-	werase(input_win);
-	box(input_win, 0, 0);
-	mvwprintw(input_win, 1, 1, "> ");
-	wrefresh(input_win);
-
-	echo();
-	curs_set(1);
-	wmove(input_win, 1, 3);
-	wgetnstr(input_win, buffer, (int)length-1);
-	noecho();
-	curs_set(0);
-}
-
 void log_message(const char *message) {
 	wmove(log_win, getmaxy(log_win)-1, 0);
 	waddstr(log_win, message);
@@ -42,18 +29,50 @@ void log_message(const char *message) {
 	wscrl(log_win, 1);
 }
 
+void render_input(char *buffer, size_t length) {
+	werase(input_win);
+	mvwprintw(input_win, 1, 1, "> %s", buffer);
+	wmove(input_win, 1, length+3);
+	box(input_win, 0, 0);
+	wrefresh(input_win);
+}
+
+bool poll_input(char *buffer, size_t *length, size_t max_length) {
+	if (*length >= max_length)
+		return false;
+
+	int ch = wgetch(input_win);
+	if (ch == ERR) return false;
+
+	if (ch == KEY_BACKSPACE) {
+		*length && (buffer[--(*length)] = (char)0);
+	} else if (isprint(ch)) {
+		buffer[(*length)++] = (char)ch;
+		buffer[(*length)]   = (char)0;
+	}
+
+	return (ch == KEY_ENTER) || (ch == '\n') || (ch == '\r');
+}
+
 int main() {
 	initscr();
 	noecho();
 	cbreak();
-	curs_set(0);
+	curs_set(1);
 
 	init_windows();
+	keypad(input_win, TRUE);
+	wtimeout(input_win, 50);
 
-	char input[256];
+	char input[256] = { 0 };
+	size_t length = 0;
+
 	while (true) {
-		poll_input(input, sizeof(input));
-		log_message(input);
+		render_input(input, length);
+		if (poll_input(input, &length, sizeof(input))) {
+			log_message(input);
+			input[(length = 0)] = '\0';
+		}
 	}
 
 	endwin();
