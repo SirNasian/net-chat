@@ -2,6 +2,7 @@
 #define NETWORK_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <enet/enet.h>
 
